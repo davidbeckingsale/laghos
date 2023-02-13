@@ -81,12 +81,12 @@ endif
 CXX = $(MFEM_CXX)
 CPPFLAGS = $(MFEM_CPPFLAGS)
 CXXFLAGS = $(MFEM_CXXFLAGS)
-LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS)
+LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) -DJIT -fpass-plugin=/g/g92/ukbeck/code/giorgis-jit/pass/build/libJitPass.so -L /g/g92/ukbeck/code/giorgis-jit -ljit
 # Extra include dir, needed for now to include headers like "general/forall.hpp"
 EXTRA_INC_DIR = $(or $(wildcard $(MFEM_DIR)/include/mfem),$(MFEM_DIR))
 CCC = $(strip $(CXX) $(LAGHOS_FLAGS) $(if $(EXTRA_INC_DIR),-I$(EXTRA_INC_DIR)))
 
-LAGHOS_LIBS = $(MFEM_LIBS) $(MFEM_EXT_LIBS)
+LAGHOS_LIBS = -L /g/g92/ukbeck/code/giorgis-jit -ljit $(MFEM_LIBS) $(MFEM_EXT_LIBS)
 LIBS = $(strip $(LAGHOS_LIBS) $(LDFLAGS))
 
 SOURCE_FILES = $(sort $(wildcard *.cpp))

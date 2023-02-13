@@ -19,6 +19,8 @@
 #include "linalg/kernels.hpp"
 #include <unordered_map>
 
+#undef JIT
+
 namespace mfem
 {
 
@@ -819,7 +821,12 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    timer.quad_tstep += NE;
 }
 
+#ifdef JIT
+MFEM_HOST_DEVICE static inline
+__attribute__((annotate("jit", 28)))
+#else
 template<int DIM> MFEM_HOST_DEVICE static inline
+#endif
 void QUpdateBody(const int NE, const int e,
                  const int NQ, const int q,
                  const bool use_viscosity,
@@ -844,9 +851,17 @@ void QUpdateBody(const int NE, const int e,
                  const double* __restrict__ d_grad_v_ext,
                  const double* __restrict__ d_Jac0inv,
                  double *d_dt_est,
-                 double *d_stressJinvT)
+                 double *d_stressJinvT
+#ifdef JIT
+                 , int DIM
+#endif
+                 )
 {
+#ifdef JIT
+  const int DIM2 = DIM*DIM;
+#else
    constexpr int DIM2 = DIM*DIM;
+#endif
    double min_detJ = infinity;
 
    const int eq = e * NQ + q;
@@ -936,7 +951,12 @@ void QUpdateBody(const int NE, const int e,
    }
 }
 
+#ifdef JIT
+static inline
+__attribute__((annotate("jit", 17, 18)))
+#else
 template<int DIM, int Q1D> static inline
+#endif
 void QKernel(const int NE, const int NQ,
              const bool use_viscosity,
              const double h0,
@@ -951,9 +971,17 @@ void QKernel(const int NE, const int NQ,
              const Vector &grad_v_ext,
              const DenseTensor &Jac0inv,
              Vector &dt_est,
-             DenseTensor &stressJinvT)
+             DenseTensor &stressJinvT
+#ifdef JIT
+             , int DIM, int Q1D
+#endif
+)
 {
+#ifdef JIT
+   const int DIM2 = DIM*DIM;
+#else
    constexpr int DIM2 = DIM*DIM;
+#endif
    auto d_gamma = gamma_gf.Read();
    auto d_weights = weights.Read();
    auto d_Jacobians = Jacobians.Read();
@@ -980,13 +1008,22 @@ void QKernel(const int NE, const int NQ,
          {
             MFEM_FOREACH_THREAD(qy,y,Q1D)
             {
-               QUpdateBody<DIM>(NE, e, NQ, qx + qy * Q1D,
+               QUpdateBody
+#ifndef JIT
+               <DIM>
+#endif
+               (NE, e, NQ, qx + qy * Q1D,
                use_viscosity, h0, h1order, cfl, infinity,
                Jinv, stress, sgrad_v, eig_val_data, eig_vec_data,
                compr_dir, Jpi, ph_dir, stressJiT,
                d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
                d_e_quads, d_grad_v_ext, d_Jac0inv,
-               d_dt_est, d_stressJinvT);
+               d_dt_est, d_stressJinvT
+#ifdef JIT
+               ,DIM
+#endif
+               
+               );
             }
          }
          MFEM_SYNC_THREAD;
@@ -1011,13 +1048,21 @@ void QKernel(const int NE, const int NQ,
             {
                MFEM_FOREACH_THREAD(qz,z,Q1D)
                {
-                  QUpdateBody<DIM>(NE, e, NQ, qx + Q1D * (qy + qz * Q1D),
+                  QUpdateBody
+#ifndef JIT 
+                  <DIM>
+#endif
+                  (NE, e, NQ, qx + Q1D * (qy + qz * Q1D),
                   use_viscosity, h0, h1order, cfl, infinity,
                   Jinv, stress, sgrad_v, eig_val_data, eig_vec_data,
                   compr_dir, Jpi, ph_dir, stressJiT,
                   d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
                   d_e_quads, d_grad_v_ext, d_Jac0inv,
-                  d_dt_est, d_stressJinvT);
+                  d_dt_est, d_stressJinvT
+#ifdef JIT
+                  , DIM
+#endif
+                  );
                }
             }
          }
@@ -1045,6 +1090,13 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    q2->SetOutputLayout(QVectorLayout::byVDIM);
    q2->Values(e, q_e);
    q_dt_est = qdata.dt_est;
+
+#ifdef JIT
+   QKernel(NE, NQ, use_viscosity, qdata.h0, h1order, cfl, infinity,
+               gamma_gf, ir.GetWeights(), q_dx,
+               qdata.rho0DetJ0w, q_e, q_dv,
+               qdata.Jac0inv, q_dt_est, qdata.stressJinvT, dim, Q1D);
+#else
    const int id = (dim << 4) | Q1D;
    typedef void (*fQKernel)(const int NE, const int NQ,
                             const bool use_viscosity,
@@ -1070,6 +1122,7 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
                gamma_gf, ir.GetWeights(), q_dx,
                qdata.rho0DetJ0w, q_e, q_dv,
                qdata.Jac0inv, q_dt_est, qdata.stressJinvT);
+#endif
    qdata.dt_est = q_dt_est.Min();
    timer->sw_qdata.Stop();
    timer->quad_tstep += NE;

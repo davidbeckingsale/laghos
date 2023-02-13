@@ -138,13 +138,21 @@ ForcePAOperator::ForcePAOperator(const QuadratureData &qdata,
    H1D2Q(&H1.GetFE(0)->GetDofToQuad(ir, DofToQuad::TENSOR)),
    X(L2sz), Y(H1sz) { }
 
-template<int DIM, int D1D, int Q1D, int L1D, int NBZ = 1> static
-void ForceMult2D(const int NE,
+#ifdef JIT
+__attribute__((annotate("jit", 1, 8, 9, 10, 11, 12)))
+#else
+template<int DIM, int D1D, int Q1D, int L1D, int NBZ = 1> 
+#endif
+static void ForceMult2D(const int NE,
                  const Array<double> &B_,
                  const Array<double> &Bt_,
                  const Array<double> &Gt_,
                  const DenseTensor &sJit_,
-                 const Vector &x, Vector &y)
+                 const Vector &x, Vector &y
+#ifdef JIT
+                 ,const int DIM, const int D1D, const int Q1D, const int L1D, const int NBZ=1 
+#endif
+                 )
 {
    auto b = Reshape(B_.Read(), Q1D, L1D);
    auto bt = Reshape(Bt_.Read(), D1D, Q1D);
@@ -165,16 +173,31 @@ void ForceMult2D(const int NE,
       MFEM_SHARED double Gt[D1D][Q1D];
 
       MFEM_SHARED double Ez[NBZ][L1D][L1D];
+      #ifdef JIT
+      double** E = ((double **)(Ez + z));
+      #else
       double (*E)[L1D] = (double (*)[L1D])(Ez + z);
+      #endif
 
       MFEM_SHARED double LQz[2][NBZ][D1D][Q1D];
+      #ifdef JIT
+      double **LQ0 = (double **)(LQz[0] + z);
+      double **LQ1 = (double **)(LQz[1] + z);
+      #else
       double (*LQ0)[Q1D] = (double (*)[Q1D])(LQz[0] + z);
       double (*LQ1)[Q1D] = (double (*)[Q1D])(LQz[1] + z);
+      #endif
 
       MFEM_SHARED double QQz[3][NBZ][Q1D][Q1D];
+      #ifdef JIT
+      double **QQ =  (double **)(QQz[0] + z);
+      double **QQ0 = (double **)(QQz[1] + z);
+      double **QQ1 = (double **)(QQz[2] + z);
+      #else
       double (*QQ)[Q1D] = (double (*)[Q1D])(QQz[0] + z);
       double (*QQ0)[Q1D] = (double (*)[Q1D])(QQz[1] + z);
       double (*QQ1)[Q1D] = (double (*)[Q1D])(QQz[2] + z);
+      #endif
 
       if (z == 0)
       {
@@ -289,13 +312,21 @@ void ForceMult2D(const int NE,
    });
 }
 
-template<int DIM, int D1D, int Q1D, int L1D> static
-void ForceMult3D(const int NE,
+#ifdef JIT
+__attribute__((annotate("jit", 1, 8, 9, 10, 11)))
+#else
+template<int DIM, int D1D, int Q1D, int L1D> 
+#endif
+static void ForceMult3D(const int NE,
                  const Array<double> &B_,
                  const Array<double> &Bt_,
                  const Array<double> &Gt_,
                  const DenseTensor &sJit_,
-                 const Vector &x, Vector &y)
+                 const Vector &x, Vector &y
+                 #ifdef JIT
+                 ,const int DIM, const int D1D, const int Q1D, const int L1D
+                 #endif
+                 )
 {
    auto b = Reshape(B_.Read(), Q1D, L1D);
    auto bt = Reshape(Bt_.Read(), D1D, Q1D);
@@ -320,6 +351,15 @@ void ForceMult3D(const int NE,
       MFEM_SHARED double sm0[3][Q1D*Q1D*Q1D];
       MFEM_SHARED double sm1[3][Q1D*Q1D*Q1D];
 
+      #ifdef JIT
+      double ***MMQ0 = (double ***) (sm0+0);
+      double ***MMQ1 = (double ***) (sm0+1);
+      double ***MMQ2 = (double ***) (sm0+2);
+      double ***MQQ0 = (double ***) (sm1+0);
+      double ***MQQ1 = (double ***) (sm1+1);
+      double ***MQQ2 = (double ***) (sm1+2);
+      #else
+
       double (*MMQ0)[D1D][Q1D] = (double (*)[D1D][Q1D]) (sm0+0);
       double (*MMQ1)[D1D][Q1D] = (double (*)[D1D][Q1D]) (sm0+1);
       double (*MMQ2)[D1D][Q1D] = (double (*)[D1D][Q1D]) (sm0+2);
@@ -327,11 +367,18 @@ void ForceMult3D(const int NE,
       double (*MQQ0)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm1+0);
       double (*MQQ1)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm1+1);
       double (*MQQ2)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm1+2);
+      #endif
 
       MFEM_SHARED double QQQ[Q1D][Q1D][Q1D];
+      #ifdef JIT
+      double ***QQQ0 = (double ***) (sm0+0);
+      double ***QQQ1 = (double ***) (sm0+1);
+      double ***QQQ2 = (double ***) (sm0+2);
+      #else
       double (*QQQ0)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm0+0);
       double (*QQQ1)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm0+1);
       double (*QQQ2)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm0+2);
+      #endif
 
       if (z == 0)
       {
@@ -527,6 +574,12 @@ static void ForceMult(const int DIM, const int D1D, const int Q1D,
 {
    MFEM_VERIFY(D1D==H1D, "D1D!=H1D");
    MFEM_VERIFY(L1D==D1D-1,"L1D!=D1D-1");
+#ifdef JIT
+   if (DIM==2)
+      ForceMult2D(NE, B, Bt, Gt, stressJinvT, e, v, DIM, D1D, Q1D, L1D);
+   else if(DIM==3)
+      ForceMult3D(NE, B, Bt, Gt, stressJinvT, e, v, DIM, D1D, Q1D, L1D);
+#else
    const int id = ((DIM)<<8)|(D1D)<<4|(Q1D);
    static std::unordered_map<int, fForceMult> call =
    {
@@ -545,6 +598,7 @@ static void ForceMult(const int DIM, const int D1D, const int Q1D,
       MFEM_ABORT("Unknown kernel");
    }
    call[id](NE, B, Bt, Gt, stressJinvT, e, v);
+#endif
 }
 
 void ForcePAOperator::Mult(const Vector &x, Vector &y) const
