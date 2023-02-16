@@ -174,15 +174,17 @@ static void ForceMult2D(const int NE,
 
       MFEM_SHARED double Ez[NBZ][L1D][L1D];
       #ifdef JIT
-      double** E = ((double **)(Ez + z));
+      using L1D_T = double (*)[L1D];
+      L1D_T E = reinterpret_cast<L1D_T>(Ez + z);
       #else
       double (*E)[L1D] = (double (*)[L1D])(Ez + z);
       #endif
 
       MFEM_SHARED double LQz[2][NBZ][D1D][Q1D];
       #ifdef JIT
-      double **LQ0 = (double **)(LQz[0] + z);
-      double **LQ1 = (double **)(LQz[1] + z);
+      using Q1D_T = double (*)[Q1D];
+      Q1D_T LQ0 = reinterpret_cast<Q1D_T>(LQz[0] + z);
+      Q1D_T LQ1 = reinterpret_cast<Q1D_T>(LQz[1] + z);
       #else
       double (*LQ0)[Q1D] = (double (*)[Q1D])(LQz[0] + z);
       double (*LQ1)[Q1D] = (double (*)[Q1D])(LQz[1] + z);
@@ -190,9 +192,9 @@ static void ForceMult2D(const int NE,
 
       MFEM_SHARED double QQz[3][NBZ][Q1D][Q1D];
       #ifdef JIT
-      double **QQ =  (double **)(QQz[0] + z);
-      double **QQ0 = (double **)(QQz[1] + z);
-      double **QQ1 = (double **)(QQz[2] + z);
+      Q1D_T QQ =  reinterpret_cast<Q1D_T>(QQz[0] + z);
+      Q1D_T QQ0 = reinterpret_cast<Q1D_T>(QQz[1] + z);
+      Q1D_T QQ1 = reinterpret_cast<Q1D_T>(QQz[2] + z);
       #else
       double (*QQ)[Q1D] = (double (*)[Q1D])(QQz[0] + z);
       double (*QQ0)[Q1D] = (double (*)[Q1D])(QQz[1] + z);
@@ -352,12 +354,15 @@ static void ForceMult3D(const int NE,
       MFEM_SHARED double sm1[3][Q1D*Q1D*Q1D];
 
       #ifdef JIT
-      double ***MMQ0 = (double ***) (sm0+0);
-      double ***MMQ1 = (double ***) (sm0+1);
-      double ***MMQ2 = (double ***) (sm0+2);
-      double ***MQQ0 = (double ***) (sm1+0);
-      double ***MQQ1 = (double ***) (sm1+1);
-      double ***MQQ2 = (double ***) (sm1+2);
+      using D1D_Q1D_T = double (*)[D1D][Q1D];
+      D1D_Q1D_T MMQ0 = reinterpret_cast<D1D_Q1D_T>(sm0+0);
+      D1D_Q1D_T MMQ1 = reinterpret_cast<D1D_Q1D_T>(sm0+1);
+      D1D_Q1D_T MMQ2 = reinterpret_cast<D1D_Q1D_T>(sm0+2);
+
+      using Q1D_Q1D_T = double (*)[Q1D][Q1D];
+      Q1D_Q1D_T MQQ0 = reinterpret_cast<Q1D_Q1D_T>(sm1+0);
+      Q1D_Q1D_T MQQ1 = reinterpret_cast<Q1D_Q1D_T>(sm1+1);
+      Q1D_Q1D_T MQQ2 = reinterpret_cast<Q1D_Q1D_T>(sm1+2);
       #else
 
       double (*MMQ0)[D1D][Q1D] = (double (*)[D1D][Q1D]) (sm0+0);
@@ -371,9 +376,9 @@ static void ForceMult3D(const int NE,
 
       MFEM_SHARED double QQQ[Q1D][Q1D][Q1D];
       #ifdef JIT
-      double ***QQQ0 = (double ***) (sm0+0);
-      double ***QQQ1 = (double ***) (sm0+1);
-      double ***QQQ2 = (double ***) (sm0+2);
+      Q1D_Q1D_T QQQ0 = reinterpret_cast<Q1D_Q1D_T>(sm0+0);
+      Q1D_Q1D_T QQQ1 = reinterpret_cast<Q1D_Q1D_T>(sm0+1);
+      Q1D_Q1D_T QQQ2 = reinterpret_cast<Q1D_Q1D_T>(sm0+2);
       #else
       double (*QQQ0)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm0+0);
       double (*QQQ1)[Q1D][Q1D] = (double (*)[Q1D][Q1D]) (sm0+1);
