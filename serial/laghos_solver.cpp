@@ -19,8 +19,6 @@
 #include "linalg/kernels.hpp"
 #include <unordered_map>
 
-#undef JIT
-
 namespace mfem
 {
 
@@ -822,6 +820,63 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
 }
 
 #ifdef JIT
+namespace jit {
+namespace kernels {
+
+template<typename T>
+MFEM_HOST_DEVICE inline 
+__attribute__((annotate("jit", 2)))
+T Det(const T *data, const int dim)
+{
+   if (2 == dim)
+      return TDetHD<T>(ColumnMajorLayout2D<2,2>(), data);
+   if (3 == dim)
+      return TDetHD<T>(ColumnMajorLayout2D<3,3>(), data);
+}
+
+template<typename T>
+MFEM_HOST_DEVICE inline
+__attribute__((annotate("jit", 3)))
+void CalcInverse(const T *data, T *inv_data, const int dim)
+{
+   if (2 == dim) {
+      typedef ColumnMajorLayout2D<2,2> layout_t;
+      const T det = TAdjDetHD<T>(layout_t(), data, layout_t(), inv_data);
+      TAssignHD<AssignOp::Mult>(layout_t(), inv_data, static_cast<T>(1.0)/det);
+   }
+
+   if (3 == dim) {
+      typedef ColumnMajorLayout2D<3,3> layout_t;
+      const T det = TAdjDetHD<T>(layout_t(), data, layout_t(), inv_data);
+      TAssignHD<AssignOp::Mult>(layout_t(), inv_data, static_cast<T>(1.0)/det);
+
+   }
+}
+
+MFEM_HOST_DEVICE inline
+__attribute__((annotate("jit", 4)))
+void CalcEigenvalues(const double *data, double *lambda, double *vec, const int dim) {
+   if (2 == dim) {
+      mfem::kernels::CalcEigenvalues<2>(data, lambda, vec); 
+   }
+   if (3 == dim) {
+      mfem::kernels::CalcEigenvalues<3>(data, lambda, vec); 
+   }
+}
+
+MFEM_HOST_DEVICE
+__attribute__((annotate("jit", 3)))
+double CalcSingularvalue(const double *data, const int i, const int dim)
+{
+   if (2 == dim)
+      return mfem::kernels::CalcSingularvalue<2>(data, i);
+   if (3 == dim)
+      return mfem::kernels::CalcSingularvalue<3>(data, i);
+}
+
+}
+}
+
 MFEM_HOST_DEVICE static inline
 __attribute__((annotate("jit", 28)))
 #else
@@ -869,9 +924,17 @@ void QUpdateBody(const int NE, const int e,
    const double weight =  d_weights[q];
    const double inv_weight = 1. / weight;
    const double *J = d_Jacobians + DIM2*(NQ*e + q);
+#ifdef JIT
+   const double detJ = jit::kernels::Det(J, DIM);
+#else
    const double detJ = kernels::Det<DIM>(J);
+#endif
    min_detJ = fmin(min_detJ, detJ);
+#ifdef JIT
+   jit::kernels::CalcInverse(J, Jinv, DIM);
+#else
    kernels::CalcInverse<DIM>(J, Jinv);
+#endif
    const double R = inv_weight * d_rho0DetJ0w[eq] / detJ;
    const double E = fmax(0.0, d_e_quads[eq]);
    const double P = (gamma - 1.0) * R * E;
@@ -895,7 +958,11 @@ void QUpdateBody(const int NE, const int e,
       }
       else
       {
+         #ifdef JIT
+         jit::kernels::CalcEigenvalues(sgrad_v, eig_val_data, eig_vec_data, DIM);
+         #else
          kernels::CalcEigenvalues<DIM>(sgrad_v, eig_val_data, eig_vec_data);
+         #endif
       }
       for (int k=0; k<DIM; k++) { compr_dir[k] = eig_vec_data[k]; }
       // Computes the initial->physical transformation Jacobian.
@@ -920,7 +987,11 @@ void QUpdateBody(const int NE, const int e,
    // scale is related to the actual mesh deformation; we use the min
    // singular value of the ref->physical Jacobian. In addition, the
    // time step estimate should be aware of the presence of shocks.
+   #ifdef JIT
+   const double sv = jit::kernels::CalcSingularvalue(J, DIM - 1, DIM);
+   #else
    const double sv = kernels::CalcSingularvalue<DIM>(J, DIM - 1);
+   #endif
    const double h_min = sv / h1order;
    const double ih_min = 1. / h_min;
    const double irho_ih_min_sq = ih_min * ih_min / R ;
